@@ -6,7 +6,7 @@
     <title>ElectroMart - Electronic Components Store</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
-        /* Same CSS as before, with minor adjustments for new features */
+        /* Same CSS as before */
         * {
             margin: 0;
             padding: 0;
@@ -435,48 +435,90 @@
     </div>
 
     <script>
-        // Initialize empty products array
-        let products = [];
-        // Clear existing products from localStorage and start fresh
-        localStorage.removeItem('products');
-        const savedProducts = localStorage.getItem('products');
-        if (savedProducts) products = JSON.parse(savedProducts);
+        // Initialize data with localStorage or default values
+        let products = JSON.parse(localStorage.getItem('products')) || [
+            {
+                id: 1,
+                name: "Arduino Uno",
+                price: 450,
+                stock: "in-stock",
+                image: "https://m.media-amazon.com/images/I/61jLj2nQqVL._SL1500_.jpg"
+            },
+            {
+                id: 2,
+                name: "Raspberry Pi 4",
+                price: 3500,
+                stock: "in-stock",
+                image: "https://m.media-amazon.com/images/I/61jBjodxakL._SL1500_.jpg"
+            },
+            {
+                id: 3,
+                name: "ESP32 Development Board",
+                price: 550,
+                stock: "in-stock",
+                image: "https://m.media-amazon.com/images/I/61+Q6RhbuKL._SL1500_.jpg"
+            }
+        ];
 
         // Admin credentials
-        const adminCredentials = { email: "newadmin@electromart.com", password: "newpassword456" };
+        const adminCredentials = { email: "admin@electromart.com", password: "admin123" };
 
         // Customers array
-        let customers = [];
-        const savedCustomers = localStorage.getItem('customers');
-        if (savedCustomers) customers = JSON.parse(savedCustomers);
+        let customers = JSON.parse(localStorage.getItem('customers')) || [
+            {
+                id: 1,
+                name: "Demo Customer",
+                email: "customer@example.com",
+                mobile: "9876543210",
+                password: "demo123",
+                address: "123, Sample Street, Demo City"
+            }
+        ];
 
         // Cart and orders state
-        let cart = [];
-        let orders = [];
-        const savedOrders = localStorage.getItem('orders');
-        if (savedOrders) orders = JSON.parse(savedOrders);
+        let cart = JSON.parse(localStorage.getItem('cart')) || [];
+        let orders = JSON.parse(localStorage.getItem('orders')) || [];
         let isAgeVerified = localStorage.getItem('ageVerified') === 'true';
         let isCustomerLoggedIn = false;
-        let currentCustomer = null;
+        let currentCustomer = JSON.parse(localStorage.getItem('currentCustomer')) || null;
+        if (currentCustomer) isCustomerLoggedIn = true;
 
         // Initialize the app
         document.addEventListener('DOMContentLoaded', function() {
+            // Save initial data if not exists
+            if (!localStorage.getItem('products')) {
+                localStorage.setItem('products', JSON.stringify(products));
+            }
+            if (!localStorage.getItem('customers')) {
+                localStorage.setItem('customers', JSON.stringify(customers));
+            }
+            
             if (isAgeVerified) {
                 document.getElementById('age-verification').style.display = 'none';
                 renderProducts(products, 'products-container');
             } else {
                 document.getElementById('age-verification').style.display = 'flex';
             }
+            
             initializeEventListeners();
             updateCartBadge();
             loadOrders();
             checkCustomerLogin();
-            renderAdminUsers();
-            // Ensure admin orders load if already logged in
+            
+            // If admin is already logged in (for demo purposes)
             if (document.getElementById('admin-tabs').classList.contains('active')) {
                 renderAdminOrders();
+                renderAdminUsers();
             }
         });
+
+        function checkCustomerLogin() {
+            if (isCustomerLoggedIn && currentCustomer) {
+                showProfileDetails();
+            } else {
+                showLoginForm();
+            }
+        }
 
         // Age verification
         document.getElementById('age-confirm').addEventListener('click', function() {
@@ -511,6 +553,7 @@
                 localStorage.setItem('currentCustomer', JSON.stringify(user));
                 errorElement.style.display = 'none';
                 showProfileDetails();
+                loadOrders(); // Refresh orders after login
             } else {
                 errorElement.style.display = 'block';
                 document.getElementById('customer-password').value = '';
@@ -527,6 +570,7 @@
             const errorElement = document.getElementById('register-error');
 
             if (!name || !email || !mobile || !password || !address) {
+                errorElement.textContent = 'All fields are required';
                 errorElement.style.display = 'block';
                 return;
             }
@@ -538,12 +582,22 @@
                 return;
             }
 
-            const newUser = { id: Date.now(), name, email, mobile, password, address };
+            const newUser = { 
+                id: Date.now(), 
+                name, 
+                email, 
+                mobile, 
+                password, 
+                address 
+            };
+            
             customers.push(newUser);
             localStorage.setItem('customers', JSON.stringify(customers));
+            
             isCustomerLoggedIn = true;
             currentCustomer = newUser;
             localStorage.setItem('currentCustomer', JSON.stringify(currentCustomer));
+            
             errorElement.style.display = 'none';
             document.getElementById('profile-register').style.display = 'none';
             showProfileDetails();
@@ -555,6 +609,7 @@
             currentCustomer = null;
             localStorage.removeItem('currentCustomer');
             showLoginForm();
+            loadOrders(); // Refresh orders after logout
         }
 
         // Show login form
@@ -626,7 +681,9 @@
                     document.getElementById('search-results').innerHTML = '';
                     return;
                 }
-                const filteredProducts = products.filter(product => product.name.toLowerCase().includes(searchTerm));
+                const filteredProducts = products.filter(product => 
+                    product.name.toLowerCase().includes(searchTerm)
+                );
                 renderProducts(filteredProducts, 'search-results');
             });
         }
@@ -649,7 +706,7 @@
             reader.onload = function(e) {
                 const imageBase64 = e.target.result;
                 const newProduct = {
-                    id: products.length + 1,
+                    id: products.length > 0 ? Math.max(...products.map(p => p.id)) + 1 : 1,
                     name: name,
                     price: price,
                     stock: stock,
@@ -708,8 +765,15 @@
             if (existingItem) {
                 existingItem.quantity += 1;
             } else {
-                cart.push({ id: product.id, name: product.name, price: product.price, quantity: 1, image: product.image });
+                cart.push({ 
+                    id: product.id, 
+                    name: product.name, 
+                    price: product.price, 
+                    quantity: 1, 
+                    image: product.image 
+                });
             }
+            localStorage.setItem('cart', JSON.stringify(cart));
             updateCartBadge();
             showCartNotification(`${product.name} added to cart!`);
         }
@@ -766,6 +830,7 @@
                 const productId = parseInt(this.getAttribute('data-id'));
                 const item = cart.find(item => item.id === productId);
                 if (item) item.quantity += 1;
+                localStorage.setItem('cart', JSON.stringify(cart));
                 renderCartItems();
                 updateCartBadge();
             }));
@@ -776,12 +841,14 @@
                     item.quantity -= 1;
                     if (item.quantity <= 0) cart = cart.filter(i => i.id !== productId);
                 }
+                localStorage.setItem('cart', JSON.stringify(cart));
                 renderCartItems();
                 updateCartBadge();
             }));
             document.querySelectorAll('.remove').forEach(button => button.addEventListener('click', function() {
                 const productId = parseInt(this.getAttribute('data-id'));
                 cart = cart.filter(item => item.id !== productId);
+                localStorage.setItem('cart', JSON.stringify(cart));
                 renderCartItems();
                 updateCartBadge();
             }));
@@ -812,12 +879,16 @@
                 address: address
             };
             orders.push(order);
-            localStorage.setItem('orders', JSON.stringify(orders)); // Ensure save
-            console.log('Order saved:', order); // Debug log
+            localStorage.setItem('orders', JSON.stringify(orders));
+            
+            // Clear cart after order
             cart = [];
+            localStorage.setItem('cart', JSON.stringify(cart));
             updateCartBadge();
+            
             document.getElementById('delivery-address').value = '';
             document.getElementById('address-error').style.display = 'none';
+            
             const ordersContainer = document.getElementById('orders-container');
             ordersContainer.innerHTML = `
                 <div class="order-confirmation">
@@ -829,29 +900,39 @@
                     <p>Status: <span class="status status-pending">Pending</span></p>
                 </div>
             `;
+            
             closeCart();
+            
+            // Switch to orders tab
             document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
             document.querySelectorAll('.nav-item').forEach(item => item.classList.remove('active'));
             document.querySelector('.tab[data-tab="orders"]').classList.add('active');
             document.querySelector('.nav-item[data-tab="orders"]').classList.add('active');
             document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
             document.getElementById('orders-content').classList.add('active');
+            
+            // Update admin orders if panel is open
+            if (document.getElementById('admin-panel').classList.contains('active')) {
+                renderAdminOrders();
+            }
         }
 
         // Load orders
         function loadOrders() {
             const ordersContainer = document.getElementById('orders-container');
-            const savedOrders = localStorage.getItem('orders');
-            if (savedOrders) orders = JSON.parse(savedOrders);
+            orders = JSON.parse(localStorage.getItem('orders')) || [];
+            
             if (!isCustomerLoggedIn) {
                 ordersContainer.innerHTML = '<p style="text-align: center; padding: 20px;">Please log in to view your orders.</p>';
                 return;
             }
+            
             const userOrders = orders.filter(order => order.user === currentCustomer.name);
             if (userOrders.length === 0) {
                 ordersContainer.innerHTML = '<p style="text-align: center; padding: 20px;">You have no orders yet.</p>';
                 return;
             }
+            
             let ordersHTML = '<table class="orders-table"><thead><tr><th>Order ID</th><th>Date</th><th>Items</th><th>Total</th><th>Address</th><th>Status</th></tr></thead><tbody>';
             userOrders.forEach(order => {
                 ordersHTML += `
@@ -872,13 +953,14 @@
         // Render admin orders
         function renderAdminOrders() {
             const ordersBody = document.getElementById('admin-orders-body');
-            const savedOrders = localStorage.getItem('orders');
-            if (savedOrders) orders = JSON.parse(savedOrders);
+            orders = JSON.parse(localStorage.getItem('orders')) || [];
             ordersBody.innerHTML = '';
+            
             if (orders.length === 0) {
                 ordersBody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 20px;">No orders available.</td></tr>';
                 return;
             }
+            
             orders.forEach(order => {
                 const row = document.createElement('tr');
                 row.innerHTML = `
@@ -896,6 +978,7 @@
                 `;
                 ordersBody.appendChild(row);
             });
+            
             document.querySelectorAll('.status-btn').forEach(button => {
                 button.addEventListener('click', function() {
                     const orderId = this.getAttribute('data-id');
@@ -907,20 +990,31 @@
 
         // Update order status
         function updateOrderStatus(orderId, newStatus) {
-            orders = orders.map(order => order.id === orderId ? { ...order, status: newStatus } : order);
+            orders = orders.map(order => 
+                order.id === orderId ? { ...order, status: newStatus } : order
+            );
             localStorage.setItem('orders', JSON.stringify(orders));
             renderAdminOrders();
+            
+            // If user is viewing their orders, refresh that too
+            if (document.getElementById('orders-content').classList.contains('active')) {
+                loadOrders();
+            }
+            
             showCartNotification(`Order ${orderId} status updated to ${newStatus}`);
         }
 
         // Render admin users
         function renderAdminUsers() {
             const usersBody = document.getElementById('admin-users-body');
+            customers = JSON.parse(localStorage.getItem('customers')) || [];
             usersBody.innerHTML = '';
+            
             if (customers.length === 0) {
                 usersBody.innerHTML = '<tr><td colspan="4" style="text-align: center; padding: 20px;">No users registered.</td></tr>';
                 return;
             }
+            
             customers.forEach(user => {
                 const row = document.createElement('tr');
                 row.innerHTML = `
@@ -941,16 +1035,21 @@
             }
             document.getElementById('admin-panel').classList.add('active');
         }
-        function closeAdminPanel() { document.getElementById('admin-panel').classList.remove('active'); }
+        
+        function closeAdminPanel() { 
+            document.getElementById('admin-panel').classList.remove('active'); 
+        }
+        
         function adminLogin() {
             const email = document.getElementById('admin-email').value;
             const password = document.getElementById('admin-password').value;
             const errorElement = document.getElementById('login-error');
+            
             if (email === adminCredentials.email && password === adminCredentials.password) {
                 errorElement.style.display = 'none';
                 document.getElementById('admin-login').style.display = 'none';
                 document.getElementById('admin-tabs').classList.add('active');
-                renderAdminOrders(); // Force render orders on login
+                renderAdminOrders();
                 renderAdminUsers();
             } else {
                 errorElement.style.display = 'block';
