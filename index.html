@@ -1,1079 +1,234 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ElectroMart - Electronic Components Store</title>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <style>
-        /* Same CSS as before */
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>ElectroMart - Firebase Edition</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+  <!-- Firebase SDK and script modules -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js";
+    import { getDatabase, ref, set, get, push, update, onValue, child, remove } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-database.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyBodVrkYkDry3eA0T2l3ZI56ykTLh7bSH8",
+      authDomain: "electronic-store-5a87f.firebaseapp.com",
+      databaseURL: "https://electronic-store-5a87f-default-rtdb.firebaseio.com",
+      projectId: "electronic-store-5a87f",
+      storageBucket: "electronic-store-5a87f.appspot.com",
+      messagingSenderId: "244304339805",
+      appId: "1:244304339805:web:0692422909ebaac28f7eb4"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
+
+    let products = [];
+    let customers = [];
+    let orders = [];
+    let currentCustomer = null;
+    let isCustomerLoggedIn = false;
+    let cart = [];
+
+    async function loadProducts() {
+      const snapshot = await get(ref(db, 'products'));
+      const data = snapshot.val();
+      products = data ? Object.values(data) : [];
+      renderProducts(products, 'products-container');
+    }
+
+    window.addEventListener('DOMContentLoaded', () => {
+      loadProducts();
+      loadOrders();
+      loadUsers();
+    });
+
+    function renderProducts(products, containerId) {
+      const container = document.getElementById(containerId);
+      container.innerHTML = '';
+      products.forEach((product, index) => {
+        const card = document.createElement('div');
+        card.className = 'product-card';
+        card.innerHTML = `
+          <div class="product-image" style="background-image: url(${product.image}); background-size: cover;"></div>
+          <div class="product-details">
+            <div class="product-name">${product.name}</div>
+            <div class="product-price">₹${product.price}</div>
+            <div class="stock-status ${product.stock}">${product.stock === 'in-stock' ? 'In Stock' : 'Out of Stock'}</div>
+            <button class="btn ${product.stock === 'in-stock' ? 'btn-primary' : 'btn-disabled'} add-to-cart" data-id="${product.id}">
+              ${product.stock === 'in-stock' ? 'Add to Cart' : 'Notify Me'}
+            </button>
+          </div>
+        `;
+        container.appendChild(card);
+      });
+    }
+
+    document.addEventListener('click', (e) => {
+      if (e.target.classList.contains('add-to-cart')) {
+        const id = e.target.getAttribute('data-id');
+        const product = products.find(p => p.id == id);
+        if (product && product.stock === 'in-stock') {
+          cart.push(product);
+          renderCart();
         }
+      }
+    });
 
-        :root {
-            --primary: #2563eb;
-            --primary-dark: #1d4ed8;
-            --secondary: #10b981;
-            --danger: #ef4444;
-            --warning: #f59e0b;
-            --dark: #1e293b;
-            --light: #f8fafc;
-            --gray: #94a3b8;
-            --border: #cbd5e1;
-            --success: #22c55e;
+    function renderCart() {
+      const cartItems = document.getElementById('cart-items');
+      const cartTotal = document.getElementById('cart-total');
+      cartItems.innerHTML = '';
+      let total = 0;
+
+      if (cart.length === 0) {
+        cartItems.innerHTML = '<p>Your cart is empty.</p>';
+        cartTotal.textContent = '0';
+        return;
+      }
+
+      cart.forEach((item, index) => {
+        total += parseFloat(item.price);
+        const div = document.createElement('div');
+        div.className = 'cart-item';
+        div.innerHTML = `
+          <p><strong>${item.name}</strong> - ₹${item.price}</p>
+          <button class="btn btn-danger remove-cart-item" data-index="${index}">Remove</button>
+        `;
+        cartItems.appendChild(div);
+      });
+
+      cartTotal.textContent = total;
+    }
+
+    document.addEventListener('click', (e) => {
+      if (e.target.classList.contains('remove-cart-item')) {
+        const index = parseInt(e.target.getAttribute('data-index'));
+        cart.splice(index, 1);
+        renderCart();
+      }
+    });
+
+    document.getElementById('place-order-btn')?.addEventListener('click', async () => {
+      if (!isCustomerLoggedIn || !currentCustomer) {
+        alert('Please login before placing an order.');
+        return;
+      }
+
+      if (cart.length === 0) {
+        alert('Cart is empty.');
+        return;
+      }
+
+      const orderData = {
+        customer: currentCustomer,
+        items: cart,
+        total: cart.reduce((sum, item) => sum + parseFloat(item.price), 0),
+        status: 'Pending',
+        date: new Date().toLocaleString()
+      };
+
+      await push(ref(db, 'orders'), orderData);
+      alert('Order placed successfully!');
+      cart = [];
+      renderCart();
+    });
+
+    document.getElementById('admin-add-product')?.addEventListener('click', async () => {
+      const name = document.getElementById('admin-product-name').value;
+      const price = document.getElementById('admin-product-price').value;
+      const image = document.getElementById('admin-product-image').value;
+      const stock = document.getElementById('admin-product-stock').value;
+
+      if (!name || !price || !image) {
+        alert('Please fill all fields');
+        return;
+      }
+
+      const id = Date.now().toString();
+      const product = { id, name, price, image, stock };
+      await push(ref(db, 'products'), product);
+      alert('Product added!');
+      loadProducts();
+    });
+
+    function loadOrders() {
+      const ordersRef = ref(db, 'orders');
+      const container = document.getElementById('admin-orders-list');
+      onValue(ordersRef, (snapshot) => {
+        const data = snapshot.val();
+        container.innerHTML = '';
+        if (data) {
+          Object.entries(data).forEach(([key, order]) => {
+            const div = document.createElement('div');
+            div.className = 'admin-order';
+            div.innerHTML = `
+              <p><strong>${order.customer.name}</strong> - ₹${order.total} - ${order.status}</p>
+              <p>${order.items.map(i => i.name).join(', ')}</p>
+              <p>${order.date}</p>
+              <button class="btn btn-danger" data-key="${key}">Delete</button>
+            `;
+            container.appendChild(div);
+          });
+        } else {
+          container.innerHTML = '<p>No orders found.</p>';
         }
+      });
+    }
 
-        body {
-            background-color: #f1f5f9;
-            color: var(--dark);
-            min-height: 100vh;
-            padding-bottom: 80px;
+    function loadUsers() {
+      const usersRef = ref(db, 'customers');
+      const container = document.getElementById('admin-users-list');
+      onValue(usersRef, (snapshot) => {
+        const data = snapshot.val();
+        container.innerHTML = '';
+        if (data) {
+          Object.values(data).forEach(user => {
+            const div = document.createElement('div');
+            div.className = 'admin-user';
+            div.innerHTML = `
+              <p><strong>${user.name}</strong> (${user.email})</p>
+              <p>${user.mobile} - ${user.address}</p>
+            `;
+            container.appendChild(div);
+          });
+        } else {
+          container.innerHTML = '<p>No users found.</p>';
         }
+      });
+    }
 
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 0 15px;
-        }
-
-        .age-verification {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0,0,0,0.8);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            z-index: 10000;
-        }
-
-        .age-content {
-            background: white;
-            border-radius: 10px;
-            padding: 30px;
-            max-width: 500px;
-            width: 90%;
-            text-align: center;
-        }
-
-        .age-icon { font-size: 3rem; color: var(--primary); margin-bottom: 15px; }
-        .age-title { font-size: 1.5rem; margin-bottom: 15px; }
-        .age-text { margin-bottom: 25px; line-height: 1.5; }
-        .age-buttons { display: flex; gap: 15px; justify-content: center; }
-        .age-btn { padding: 10px 25px; border-radius: 6px; font-weight: 600; cursor: pointer; border: none; }
-        .age-confirm { background: var(--primary); color: white; }
-        .age-deny { background: var(--danger); color: white; }
-
-        header { background: linear-gradient(135deg, var(--primary), var(--primary-dark)); color: white; padding: 15px 0; box-shadow: 0 4px 6px rgba(0,0,0,0.1); position: sticky; top: 0; z-index: 100; }
-        .header-content { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; }
-        .logo { display: flex; align-items: center; gap: 10px; font-size: 1.5rem; font-weight: 700; }
-        .logo i { color: var(--warning); }
-        .header-actions { display: flex; gap: 15px; align-items: center; }
-        .cart-icon { position: relative; cursor: pointer; }
-        .cart-badge { position: absolute; top: -8px; right: -8px; background: var(--warning); color: white; border-radius: 50%; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; font-size: 0.7rem; font-weight: bold; }
-        .admin-login-btn { background: var(--dark); color: white; border: none; padding: 8px 15px; border-radius: 6px; cursor: pointer; font-weight: 500; display: flex; align-items: center; gap: 5px; }
-
-        .nav-container { background-color: white; box-shadow: 0 2px 4px rgba(0,0,0,0.05); position: sticky; top: 60px; z-index: 90; }
-        .tabs { display: flex; justify-content: space-around; list-style: none; }
-        .tab { flex: 1; text-align: center; padding: 15px 0; cursor: pointer; transition: all 0.3s ease; border-bottom: 3px solid transparent; font-weight: 500; }
-        .tab.active { border-bottom: 3px solid var(--primary); color: var(--primary); }
-        .tab:hover:not(.active) { background-color: #f1f5f9; }
-
-        .tab-content { display: none; padding: 20px 0; animation: fadeIn 0.5s ease; }
-        .tab-content.active { display: block; }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-
-        .section-title { font-size: 1.5rem; margin-bottom: 20px; padding-bottom: 10px; border-bottom: 2px solid var(--border); color: var(--dark); display: flex; align-items: center; gap: 10px; }
-        .products-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 15px; }
-        @media (min-width: 768px) { .products-grid { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 20px; } }
-        .product-card { background: white; border-radius: 10px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.05); transition: transform 0.3s ease, box-shadow 0.3s ease; }
-        .product-card:hover { transform: translateY(-5px); box-shadow: 0 10px 15px rgba(0,0,0,0.1); }
-        .product-image { height: 120px; width: 100%; background-color: #e2e8f0; display: flex; align-items: center; justify-content: center; }
-        .product-details { padding: 12px; }
-        .product-name { font-weight: 600; font-size: 0.95rem; margin-bottom: 5px; height: 40px; overflow: hidden; }
-        .product-price { color: var(--primary); font-weight: 700; font-size: 1.1rem; margin-bottom: 8px; }
-        .stock-status { display: inline-block; padding: 3px 8px; border-radius: 20px; font-size: 0.75rem; font-weight: 500; margin-bottom: 10px; }
-        .in-stock { background-color: #dcfce7; color: #15803d; }
-        .out-of-stock { background-color: #fee2e2; color: #b91c1c; }
-        .btn { display: block; width: 100%; padding: 8px; border: none; border-radius: 5px; font-weight: 600; cursor: pointer; transition: background-color 0.3s ease; text-align: center; text-decoration: none; font-size: 0.9rem; }
-        .btn-primary { background-color: var(--primary); color: white; }
-        .btn-primary:hover { background-color: var(--primary-dark); }
-        .btn-success { background-color: var(--success); color: white; }
-        .btn-danger { background-color: var(--danger); color: white; }
-        .btn-disabled { background-color: var(--gray); color: white; cursor: not-allowed; }
-
-        .search-container { margin-bottom: 20px; }
-        .search-box { display: flex; gap: 10px; }
-        .search-box input { flex: 1; padding: 12px 15px; border: 1px solid var(--border); border-radius: 8px; font-size: 1rem; }
-        .search-box button { padding: 12px 20px; background-color: var(--primary); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; }
-
-        .orders-table { width: 100%; border-collapse: collapse; background: white; border-radius: 10px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.05); font-size: 0.9rem; }
-        .orders-table th, .orders-table td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--border); }
-        .orders-table th { background-color: #f1f5f9; font-weight: 600; }
-        .orders-table tr:last-child td { border-bottom: none; }
-        .status { display: inline-flex; align-items: center; gap: 5px; padding: 4px 8px; border-radius: 20px; font-size: 0.8rem; font-weight: 500; }
-        .status-pending { background-color: #fef9c3; color: #ca8a04; }
-        .status-complete { background-color: #dcfce7; color: #15803d; }
-
-        .profile-card { background: white; border-radius: 10px; padding: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
-        .profile-detail { display: flex; margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--border); font-size: 0.95rem; }
-        .profile-detail:last-child { margin-bottom: 0; padding-bottom: 0; border-bottom: none; }
-        .detail-label { width: 100px; font-weight: 600; color: var(--dark); }
-        .detail-value { flex: 1; color: #475569; }
-
-        .cart-modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; opacity: 0; pointer-events: none; transition: opacity 0.3s ease; }
-        .cart-modal.active { opacity: 1; pointer-events: all; }
-        .cart-content { background: white; border-radius: 10px; width: 95%; max-width: 500px; max-height: 90vh; overflow: auto; transform: translateY(20px); transition: transform 0.3s ease; }
-        .cart-modal.active .cart-content { transform: translateY(0); }
-        .cart-header { display: flex; justify-content: space-between; align-items: center; padding: 15px 20px; border-bottom: 1px solid var(--border); }
-        .cart-title { font-size: 1.3rem; font-weight: 600; }
-        .close-cart { background: none; border: none; font-size: 1.5rem; cursor: pointer; }
-        .cart-items { padding: 15px 20px; }
-        .cart-item { display: flex; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--border); }
-        .cart-item-image { width: 60px; height: 60px; background: #e2e8f0; border-radius: 8px; display: flex; align-items: center; justify-content: center; margin-right: 15px; }
-        .cart-item-details { flex: 1; }
-        .cart-item-name { font-weight: 600; margin-bottom: 5px; }
-        .cart-item-price { color: var(--primary); font-weight: 600; }
-        .cart-item-actions { display: flex; align-items: center; gap: 10px; }
-        .quantity-btn { width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--border); background: white; display: flex; align-items: center; justify-content: center; cursor: pointer; }
-        .cart-footer { padding: 15px 20px; border-top: 1px solid var(--border); }
-        .cart-total { display: flex; justify-content: space-between; font-size: 1.1rem; font-weight: 600; margin-bottom: 15px; }
-        .checkout-btn { width: 100%; padding: 12px; background: var(--success); color: white; border: none; border-radius: 8px; font-size: 1rem; font-weight: 600; cursor: pointer; }
-
-        .admin-panel { position: fixed; top: 0; right: -400px; width: 380px; height: 100vh; background: white; box-shadow: -5px 0 15px rgba(0,0,0,0.1); transition: right 0.4s ease; z-index: 10000; overflow-y: auto; padding-bottom: 80px; }
-        .admin-panel.active { right: 0; }
-        .admin-header { background: var(--dark); color: white; padding: 20px; display: flex; justify-content: space-between; align-items: center; }
-        .close-admin { background: none; border: none; color: white; font-size: 1.5rem; cursor: pointer; }
-
-        .admin-login, .register-form { padding: 30px; }
-        .login-title, .register-title { text-align: center; margin-bottom: 25px; color: var(--dark); }
-        .form-group { margin-bottom: 20px; }
-        .form-group label { display: block; margin-bottom: 8px; font-weight: 500; color: var(--dark); }
-        .form-group input, .form-group textarea, .form-group select { width: 100%; padding: 12px; border: 1px solid var(--border); border-radius: 6px; font-size: 1rem; }
-        .form-group input:focus, .form-group textarea:focus, .form-group select:focus { outline: none; border-color: var(--primary); }
-        .login-btn, .register-btn { width: 100%; padding: 12px; background-color: var(--primary); color: white; border: none; border-radius: 6px; font-size: 1rem; font-weight: 600; cursor: pointer; transition: background-color 0.3s; }
-        .login-btn:hover, .register-btn:hover { background-color: var(--primary-dark); }
-        .login-error, .register-error { color: var(--danger); text-align: center; margin-top: 15px; font-size: 0.9rem; display: none; }
-
-        .admin-tabs { display: none; }
-        .admin-tabs.active { display: block; }
-        .add-product-form { padding: 20px; }
-        .bottom-nav { position: fixed; bottom: 0; left: 0; right: 0; background: white; display: flex; justify-content: space-around; padding: 10px 0; box-shadow: 0 -2px 10px rgba(0,0,0,0.1); z-index: 100; }
-        .nav-item { display: flex; flex-direction: column; align-items: center; gap: 5px; font-size: 0.8rem; color: var(--gray); cursor: pointer; flex: 1; }
-        .nav-item.active { color: var(--primary); }
-        .nav-item i { font-size: 1.2rem; }
-        .order-confirmation { background: white; border-radius: 10px; padding: 30px; text-align: center; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
-        .confirmation-icon { font-size: 4rem; color: var(--success); margin-bottom: 20px; }
-
-        @media (max-width: 768px) {
-            .header-content { flex-direction: column; gap: 15px; }
-            .admin-panel { width: 100%; right: -100%; }
-            .orders-table { display: block; overflow-x: auto; }
-            .detail-label { width: 80px; }
-        }
-    </style>
+    document.getElementById('admin-orders-list')?.addEventListener('click', async (e) => {
+      if (e.target.classList.contains('btn-danger')) {
+        const key = e.target.getAttribute('data-key');
+        await remove(ref(db, 'orders/' + key));
+        alert('Order deleted!');
+      }
+    });
+  </script>
 </head>
 <body>
-    <!-- Age Verification Modal -->
-    <div class="age-verification" id="age-verification">
-        <div class="age-content">
-            <div class="age-icon"><i class="fas fa-exclamation-circle"></i></div>
-            <h2 class="age-title">Age Verification</h2>
-            <p class="age-text">This website sells electronic components that may contain hazardous materials. You must be at least 18 years old to access this site.</p>
-            <div class="age-buttons">
-                <button class="age-btn age-confirm" id="age-confirm">I am 18+</button>
-                <button class="age-btn age-deny" id="age-deny">I am under 18</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- Header Section -->
-    <header>
-        <div class="container">
-            <div class="header-content">
-                <div class="logo"><i class="fas fa-microchip"></i><span>ElectroMart</span></div>
-                <div class="header-actions">
-                    <div class="cart-icon" id="cart-icon"><i class="fas fa-shopping-cart"></i><span class="cart-badge">0</span></div>
-                    <button class="admin-login-btn" id="admin-toggle"><i class="fas fa-user-cog"></i><span>Admin</span></button>
-                </div>
-            </div>
-        </div>
-    </header>
-
-    <!-- Navigation Tabs -->
-    <div class="nav-container">
-        <div class="container">
-            <ul class="tabs">
-                <li class="tab active" data-tab="home">Home</li>
-                <li class="tab" data-tab="search">Search</li>
-                <li class="tab" data-tab="orders">Orders</li>
-                <li class="tab" data-tab="profile">Profile</li>
-            </ul>
-        </div>
-    </div>
-
-    <!-- Main Content -->
-    <div class="container">
-        <!-- Home Tab -->
-        <div class="tab-content active" id="home-content">
-            <h2 class="section-title"><i class="fas fa-home"></i> Featured Components</h2>
-            <div class="products-grid" id="products-container"></div>
-        </div>
-
-        <!-- Search Tab -->
-        <div class="tab-content" id="search-content">
-            <h2 class="section-title"><i class="fas fa-search"></i> Find Components</h2>
-            <div class="search-container">
-                <div class="search-box">
-                    <input type="text" id="search-input" placeholder="Search for components...">
-                    <button><i class="fas fa-search"></i> Search</button>
-                </div>
-            </div>
-            <div class="products-grid" id="search-results"></div>
-        </div>
-
-        <!-- Orders Tab -->
-        <div class="tab-content" id="orders-content">
-            <h2 class="section-title"><i class="fas fa-shopping-bag"></i> Your Orders</h2>
-            <div id="orders-container"></div>
-        </div>
-
-        <!-- Profile Tab -->
-        <div class="tab-content" id="profile-content">
-            <h2 class="section-title"><i class="fas fa-user"></i> Your Profile</h2>
-            <div class="profile-card" id="profile-login">
-                <h3 class="login-title">Customer Login</h3>
-                <div class="form-group">
-                    <label for="customer-email">Email Address</label>
-                    <input type="email" id="customer-email" placeholder="Enter email">
-                </div>
-                <div class="form-group">
-                    <label for="customer-mobile">Mobile Number</label>
-                    <input type="text" id="customer-mobile" placeholder="Enter mobile number">
-                </div>
-                <div class="form-group">
-                    <label for="customer-password">Password</label>
-                    <input type="password" id="customer-password" placeholder="Enter password">
-                </div>
-                <button class="login-btn" id="customer-login-btn">Login</button>
-                <button class="login-btn" id="customer-register-btn" style="margin-top: 10px;">Register</button>
-                <div class="login-error" id="customer-login-error">Invalid email, mobile, or password</div>
-            </div>
-            <div class="profile-card" id="profile-register" style="display: none;">
-                <h3 class="register-title">Customer Registration</h3>
-                <div class="form-group">
-                    <label for="register-name">Full Name</label>
-                    <input type="text" id="register-name" placeholder="Enter your name">
-                </div>
-                <div class="form-group">
-                    <label for="register-email">Email Address</label>
-                    <input type="email" id="register-email" placeholder="Enter email">
-                </div>
-                <div class="form-group">
-                    <label for="register-mobile">Mobile Number</label>
-                    <input type="text" id="register-mobile" placeholder="Enter mobile number">
-                </div>
-                <div class="form-group">
-                    <label for="register-password">Password</label>
-                    <input type="password" id="register-password" placeholder="Enter password">
-                </div>
-                <div class="form-group">
-                    <label for="register-address">Address</label>
-                    <textarea id="register-address" placeholder="Enter your address" rows="3"></textarea>
-                </div>
-                <button class="register-btn" id="register-btn">Register</button>
-                <div class="register-error" id="register-error">All fields are required</div>
-            </div>
-            <div class="profile-card" id="profile-details" style="display: none;">
-                <div class="profile-detail">
-                    <div class="detail-label">Name:</div>
-                    <div class="detail-value" id="profile-name"></div>
-                </div>
-                <div class="profile-detail">
-                    <div class="detail-label">Email:</div>
-                    <div class="detail-value" id="profile-email"></div>
-                </div>
-                <div class="profile-detail">
-                    <div class="detail-label">Mobile:</div>
-                    <div class="detail-value" id="profile-mobile"></div>
-                </div>
-                <div class="profile-detail">
-                    <div class="detail-label">Address:</div>
-                    <div class="detail-value" id="profile-address"></div>
-                </div>
-                <button class="btn btn-danger" id="logout-btn">Logout</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- Cart Modal -->
-    <div class="cart-modal" id="cart-modal">
-        <div class="cart-content">
-            <div class="cart-header">
-                <h2 class="cart-title">Your Cart</h2>
-                <button class="close-cart" id="close-cart"><i class="fas fa-times"></i></button>
-            </div>
-            <div class="cart-items" id="cart-items"></div>
-            <div class="cart-footer">
-                <div class="cart-total">
-                    <span>Total:</span>
-                    <span id="cart-total-price">₹0</span>
-                </div>
-                <div class="form-group">
-                    <label for="delivery-address">Delivery Address</label>
-                    <textarea id="delivery-address" placeholder="Enter your delivery address" rows="4" style="width: 100%; padding: 10px; border-radius: 6px; border: 1px solid var(--border);"></textarea>
-                </div>
-                <button class="checkout-btn" id="checkout-btn">Place Order</button>
-                <div class="login-error" id="address-error" style="display: none;">Please enter a valid address</div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Admin Panel -->
-    <div class="admin-panel" id="admin-panel">
-        <div class="admin-login" id="admin-login">
-            <h2 class="login-title"><i class="fas fa-user-cog"></i> Admin Login</h2>
-            <div class="form-group">
-                <label for="admin-email">Email Address</label>
-                <input type="email" id="admin-email" placeholder="admin@example.com">
-            </div>
-            <div class="form-group">
-                <label for="admin-password">Password</label>
-                <input type="password" id="admin-password" placeholder="Enter password">
-            </div>
-            <button class="login-btn" id="admin-login-btn">Login</button>
-            <div class="login-error" id="login-error">Invalid email or password</div>
-        </div>
-        <div class="admin-tabs" id="admin-tabs">
-            <div class="admin-header">
-                <h2><i class="fas fa-cogs"></i> Admin Panel</h2>
-                <button class="close-admin" id="close-admin"><i class="fas fa-times"></i></button>
-            </div>
-            <div class="admin-tabs-nav">
-                <ul class="tabs">
-                    <li class="tab active" data-tab="admin-users">Users</li>
-                    <li class="tab" data-tab="admin-orders">Orders</li>
-                    <li class="tab" data-tab="admin-search">Search</li>
-                    <li class="tab" data-tab="admin-add">Add Product</li>
-                </ul>
-            </div>
-            <div class="admin-content">
-                <div class="tab-content active" id="admin-users-content">
-                    <div class="container">
-                        <h2 class="section-title"><i class="fas fa-users"></i> Registered Users</h2>
-                        <table class="orders-table">
-                            <thead><tr><th>ID</th><th>Name</th><th>Email</th><th>Mobile</th></tr></thead>
-                            <tbody id="admin-users-body"></tbody>
-                        </table>
-                    </div>
-                </div>
-                <div class="tab-content" id="admin-orders-content">
-                    <div class="container">
-                        <h2 class="section-title"><i class="fas fa-shopping-bag"></i> All Orders</h2>
-                        <table class="orders-table" id="admin-orders-table">
-                            <thead><tr><th>Order ID</th><th>User</th><th>Address</th><th>Date</th><th>Items</th><th>Total</th><th>Status</th><th>Action</th></tr></thead>
-                            <tbody id="admin-orders-body"></tbody>
-                        </table>
-                    </div>
-                </div>
-                <div class="tab-content" id="admin-search-content">
-                    <div class="container">
-                        <h2 class="section-title"><i class="fas fa-search"></i> Admin Search</h2>
-                        <div class="search-container">
-                            <div class="search-box">
-                                <input type="text" id="admin-search-input" placeholder="Search products or orders...">
-                                <button><i class="fas fa-search"></i> Search</button>
-                            </div>
-                        </div>
-                        <div id="admin-search-results"></div>
-                    </div>
-                </div>
-                <div class="tab-content" id="admin-add-content">
-                    <div class="container">
-                        <h2 class="section-title"><i class="fas fa-plus-circle"></i> Add New Product</h2>
-                        <div class="add-product-form">
-                            <div class="form-group">
-                                <label for="product-name">Product Name</label>
-                                <input type="text" id="product-name" placeholder="Enter product name">
-                            </div>
-                            <div class="form-group">
-                                <label for="product-price">Price (₹)</label>
-                                <input type="number" id="product-price" placeholder="Enter price">
-                            </div>
-                            <div class="form-group">
-                                <label for="product-image">Upload Image</label>
-                                <input type="file" id="product-image" accept="image/*">
-                            </div>
-                            <div class="form-group">
-                                <label for="product-stock">Stock Status</label>
-                                <select id="product-stock">
-                                    <option value="in-stock">In Stock</option>
-                                    <option value="out-of-stock">Out of Stock</option>
-                                </select>
-                            </div>
-                            <button class="btn btn-primary" id="add-product-btn">Add Product</button>
-                            <div class="login-error" id="product-error" style="display: none;">Please fill all fields and upload an image</div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Bottom Navigation -->
-    <div class="bottom-nav">
-        <div class="nav-item active" data-tab="home"><i class="fas fa-home"></i><span>Home</span></div>
-        <div class="nav-item" data-tab="search"><i class="fas fa-search"></i><span>Search</span></div>
-        <div class="nav-item" data-tab="orders"><i class="fas fa-shopping-bag"></i><span>Orders</span></div>
-        <div class="nav-item" data-tab="profile"><i class="fas fa-user"></i><span>Profile</span></div>
-    </div>
-
-    <script>
-        // Initialize data with localStorage or default values
-        let products = JSON.parse(localStorage.getItem('products')) || [
-            {
-                id: 1,
-                name: "Arduino Uno",
-                price: 450,
-                stock: "in-stock",
-                image: "https://m.media-amazon.com/images/I/61jLj2nQqVL._SL1500_.jpg"
-            },
-            {
-                id: 2,
-                name: "Raspberry Pi 4",
-                price: 3500,
-                stock: "in-stock",
-                image: "https://m.media-amazon.com/images/I/61jBjodxakL._SL1500_.jpg"
-            },
-            {
-                id: 3,
-                name: "ESP32 Development Board",
-                price: 550,
-                stock: "in-stock",
-                image: "https://m.media-amazon.com/images/I/61+Q6RhbuKL._SL1500_.jpg"
-            }
-        ];
-
-        // Admin credentials
-        const adminCredentials = { email: "admin@electromart.com", password: "admin123" };
-
-        // Customers array
-        let customers = JSON.parse(localStorage.getItem('customers')) || [
-            {
-                id: 1,
-                name: "Demo Customer",
-                email: "customer@example.com",
-                mobile: "9876543210",
-                password: "demo123",
-                address: "123, Sample Street, Demo City"
-            }
-        ];
-
-        // Cart and orders state
-        let cart = JSON.parse(localStorage.getItem('cart')) || [];
-        let orders = JSON.parse(localStorage.getItem('orders')) || [];
-        let isAgeVerified = localStorage.getItem('ageVerified') === 'true';
-        let isCustomerLoggedIn = false;
-        let currentCustomer = JSON.parse(localStorage.getItem('currentCustomer')) || null;
-        if (currentCustomer) isCustomerLoggedIn = true;
-
-        // Initialize the app
-        document.addEventListener('DOMContentLoaded', function() {
-            // Save initial data if not exists
-            if (!localStorage.getItem('products')) {
-                localStorage.setItem('products', JSON.stringify(products));
-            }
-            if (!localStorage.getItem('customers')) {
-                localStorage.setItem('customers', JSON.stringify(customers));
-            }
-            
-            if (isAgeVerified) {
-                document.getElementById('age-verification').style.display = 'none';
-                renderProducts(products, 'products-container');
-            } else {
-                document.getElementById('age-verification').style.display = 'flex';
-            }
-            
-            initializeEventListeners();
-            updateCartBadge();
-            loadOrders();
-            checkCustomerLogin();
-            
-            // If admin is already logged in (for demo purposes)
-            if (document.getElementById('admin-tabs').classList.contains('active')) {
-                renderAdminOrders();
-                renderAdminUsers();
-            }
-        });
-
-        function checkCustomerLogin() {
-            if (isCustomerLoggedIn && currentCustomer) {
-                showProfileDetails();
-            } else {
-                showLoginForm();
-            }
-        }
-
-        // Age verification
-        document.getElementById('age-confirm').addEventListener('click', function() {
-            isAgeVerified = true;
-            localStorage.setItem('ageVerified', 'true');
-            document.getElementById('age-verification').style.display = 'none';
-            renderProducts(products, 'products-container');
-        });
-
-        document.getElementById('age-deny').addEventListener('click', function() {
-            window.location.href = 'https://www.google.com';
-        });
-
-        // Customer login and register toggle
-        document.getElementById('customer-register-btn').addEventListener('click', function() {
-            document.getElementById('profile-login').style.display = 'none';
-            document.getElementById('profile-register').style.display = 'block';
-            document.getElementById('profile-details').style.display = 'none';
-        });
-
-        // Customer login
-        function customerLogin() {
-            const email = document.getElementById('customer-email').value;
-            const mobile = document.getElementById('customer-mobile').value;
-            const password = document.getElementById('customer-password').value;
-            const errorElement = document.getElementById('customer-login-error');
-
-            const user = customers.find(u => u.email === email && u.mobile === mobile && u.password === password);
-            if (user) {
-                isCustomerLoggedIn = true;
-                currentCustomer = user;
-                localStorage.setItem('currentCustomer', JSON.stringify(user));
-                errorElement.style.display = 'none';
-                showProfileDetails();
-                loadOrders(); // Refresh orders after login
-            } else {
-                errorElement.style.display = 'block';
-                document.getElementById('customer-password').value = '';
-            }
-        }
-
-        // Customer register
-        document.getElementById('register-btn').addEventListener('click', function() {
-            const name = document.getElementById('register-name').value.trim();
-            const email = document.getElementById('register-email').value.trim();
-            const mobile = document.getElementById('register-mobile').value.trim();
-            const password = document.getElementById('register-password').value.trim();
-            const address = document.getElementById('register-address').value.trim();
-            const errorElement = document.getElementById('register-error');
-
-            if (!name || !email || !mobile || !password || !address) {
-                errorElement.textContent = 'All fields are required';
-                errorElement.style.display = 'block';
-                return;
-            }
-
-            const existingUser = customers.find(u => u.email === email || u.mobile === mobile);
-            if (existingUser) {
-                errorElement.textContent = 'Email or mobile already registered';
-                errorElement.style.display = 'block';
-                return;
-            }
-
-            const newUser = { 
-                id: Date.now(), 
-                name, 
-                email, 
-                mobile, 
-                password, 
-                address 
-            };
-            
-            customers.push(newUser);
-            localStorage.setItem('customers', JSON.stringify(customers));
-            
-            isCustomerLoggedIn = true;
-            currentCustomer = newUser;
-            localStorage.setItem('currentCustomer', JSON.stringify(currentCustomer));
-            
-            errorElement.style.display = 'none';
-            document.getElementById('profile-register').style.display = 'none';
-            showProfileDetails();
-        });
-
-        // Customer logout
-        function customerLogout() {
-            isCustomerLoggedIn = false;
-            currentCustomer = null;
-            localStorage.removeItem('currentCustomer');
-            showLoginForm();
-            loadOrders(); // Refresh orders after logout
-        }
-
-        // Show login form
-        function showLoginForm() {
-            document.getElementById('profile-login').style.display = 'block';
-            document.getElementById('profile-register').style.display = 'none';
-            document.getElementById('profile-details').style.display = 'none';
-        }
-
-        // Show profile details
-        function showProfileDetails() {
-            document.getElementById('profile-login').style.display = 'none';
-            document.getElementById('profile-register').style.display = 'none';
-            document.getElementById('profile-details').style.display = 'block';
-            document.getElementById('profile-name').textContent = currentCustomer.name;
-            document.getElementById('profile-email').textContent = currentCustomer.email;
-            document.getElementById('profile-mobile').textContent = currentCustomer.mobile;
-            document.getElementById('profile-address').textContent = currentCustomer.address;
-        }
-
-        // Initialize event listeners
-        function initializeEventListeners() {
-            document.querySelectorAll('.tab, .nav-item').forEach(item => {
-                item.addEventListener('click', function() {
-                    if (!isAgeVerified) {
-                        alert('Please verify your age to continue.');
-                        return;
-                    }
-                    const tabName = this.getAttribute('data-tab');
-                    if (tabName.startsWith('admin')) {
-                        document.querySelectorAll('.admin-content .tab-content').forEach(content => content.classList.remove('active'));
-                        document.querySelectorAll('.admin-tabs-nav .tab').forEach(tab => tab.classList.remove('active'));
-                        document.getElementById(`${tabName}-content`).classList.add('active');
-                        this.classList.add('active');
-                        if (tabName === 'admin-orders') renderAdminOrders();
-                        if (tabName === 'admin-users') renderAdminUsers();
-                        return;
-                    }
-                    document.querySelectorAll('.tabs .tab').forEach(tab => tab.classList.remove('active'));
-                    document.querySelectorAll('.nav-item').forEach(nav => nav.classList.remove('active'));
-                    this.classList.add('active');
-                    if (this.classList.contains('tab')) {
-                        document.querySelector(`.nav-item[data-tab="${tabName}"]`).classList.add('active');
-                    } else {
-                        document.querySelector(`.tab[data-tab="${tabName}"]`).classList.add('active');
-                    }
-                    document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
-                    document.getElementById(`${tabName}-content`).classList.add('active');
-                    if (tabName === 'orders') loadOrders();
-                });
-            });
-
-            document.getElementById('cart-icon').addEventListener('click', openCart);
-            document.getElementById('close-cart').addEventListener('click', closeCart);
-            document.getElementById('checkout-btn').addEventListener('click', placeOrder);
-            document.getElementById('admin-toggle').addEventListener('click', openAdminPanel);
-            document.getElementById('close-admin').addEventListener('click', closeAdminPanel);
-            document.getElementById('admin-login-btn').addEventListener('click', adminLogin);
-            document.getElementById('customer-login-btn').addEventListener('click', customerLogin);
-            document.getElementById('logout-btn').addEventListener('click', customerLogout);
-            document.getElementById('add-product-btn').addEventListener('click', addProduct);
-            document.getElementById('search-input').addEventListener('input', function() {
-                if (!isAgeVerified) {
-                    alert('Please verify your age to continue.');
-                    return;
-                }
-                const searchTerm = this.value.toLowerCase();
-                if (searchTerm.length < 2) {
-                    document.getElementById('search-results').innerHTML = '';
-                    return;
-                }
-                const filteredProducts = products.filter(product => 
-                    product.name.toLowerCase().includes(searchTerm)
-                );
-                renderProducts(filteredProducts, 'search-results');
-            });
-        }
-
-        // Add product
-        function addProduct() {
-            const name = document.getElementById('product-name').value.trim();
-            const price = parseFloat(document.getElementById('product-price').value);
-            const stock = document.getElementById('product-stock').value;
-            const fileInput = document.getElementById('product-image');
-            const errorElement = document.getElementById('product-error');
-
-            if (!name || isNaN(price) || price <= 0 || !stock || !fileInput.files[0]) {
-                errorElement.style.display = 'block';
-                return;
-            }
-
-            const file = fileInput.files[0];
-            const reader = new FileReader();
-            reader.onload = function(e) {
-                const imageBase64 = e.target.result;
-                const newProduct = {
-                    id: products.length > 0 ? Math.max(...products.map(p => p.id)) + 1 : 1,
-                    name: name,
-                    price: price,
-                    stock: stock,
-                    image: imageBase64
-                };
-                products.push(newProduct);
-                localStorage.setItem('products', JSON.stringify(products));
-                document.getElementById('product-name').value = '';
-                document.getElementById('product-price').value = '';
-                document.getElementById('product-stock').value = 'in-stock';
-                fileInput.value = '';
-                errorElement.style.display = 'none';
-                renderProducts(products, 'products-container');
-                showCartNotification(`${name} added to products!`);
-            };
-            reader.readAsDataURL(file);
-        }
-
-        // Render products
-        function renderProducts(products, containerId) {
-            const container = document.getElementById(containerId);
-            container.innerHTML = '';
-            products.forEach(product => {
-                const productElement = document.createElement('div');
-                productElement.className = 'product-card';
-                productElement.innerHTML = `
-                    <div class="product-image" style="background-image: url(${product.image || ''}); background-size: cover; background-position: center;"></div>
-                    <div class="product-details">
-                        <div class="product-name">${product.name}</div>
-                        <div class="product-price">₹${product.price}</div>
-                        <div class="stock-status ${product.stock}">${product.stock === 'in-stock' ? 'In Stock' : 'Out of Stock'}</div>
-                        <button class="btn ${product.stock === 'in-stock' ? 'btn-primary' : 'btn-disabled'} add-to-cart" data-id="${product.id}">
-                            ${product.stock === 'in-stock' ? 'Add to Cart' : 'Notify Me'}
-                        </button>
-                    </div>
-                `;
-                container.appendChild(productElement);
-            });
-            document.querySelectorAll('.add-to-cart').forEach(button => {
-                button.addEventListener('click', function() {
-                    if (!isAgeVerified || !isCustomerLoggedIn) {
-                        alert('Please verify your age and log in to add items to cart.');
-                        return;
-                    }
-                    const productId = parseInt(this.getAttribute('data-id'));
-                    addToCart(productId);
-                });
-            });
-        }
-
-        // Add to cart
-        function addToCart(productId) {
-            const product = products.find(p => p.id === productId);
-            if (!product) return;
-            const existingItem = cart.find(item => item.id === productId);
-            if (existingItem) {
-                existingItem.quantity += 1;
-            } else {
-                cart.push({ 
-                    id: product.id, 
-                    name: product.name, 
-                    price: product.price, 
-                    quantity: 1, 
-                    image: product.image 
-                });
-            }
-            localStorage.setItem('cart', JSON.stringify(cart));
-            updateCartBadge();
-            showCartNotification(`${product.name} added to cart!`);
-        }
-
-        // Update cart badge
-        function updateCartBadge() {
-            const totalItems = cart.reduce((total, item) => total + item.quantity, 0);
-            document.querySelector('.cart-badge').textContent = totalItems;
-        }
-
-        // Open and close cart
-        function openCart() {
-            if (!isAgeVerified || !isCustomerLoggedIn) {
-                alert('Please verify your age and log in to view cart.');
-                return;
-            }
-            renderCartItems();
-            document.getElementById('cart-modal').classList.add('active');
-        }
-        function closeCart() { document.getElementById('cart-modal').classList.remove('active'); }
-
-        // Render cart items
-        function renderCartItems() {
-            const container = document.getElementById('cart-items');
-            container.innerHTML = '';
-            if (cart.length === 0) {
-                container.innerHTML = '<p style="text-align: center; padding: 20px;">Your cart is empty</p>';
-                document.getElementById('cart-total-price').textContent = '₹0';
-                return;
-            }
-            let total = 0;
-            cart.forEach(item => {
-                const itemTotal = item.price * item.quantity;
-                total += itemTotal;
-                const cartItem = document.createElement('div');
-                cartItem.className = 'cart-item';
-                cartItem.innerHTML = `
-                    <div class="cart-item-image" style="background-image: url(${item.image || ''}); background-size: cover; background-position: center;"></div>
-                    <div class="cart-item-details">
-                        <div class="cart-item-name">${item.name}</div>
-                        <div class="cart-item-price">₹${item.price} × ${item.quantity} = ₹${itemTotal}</div>
-                    </div>
-                    <div class="cart-item-actions">
-                        <button class="quantity-btn decrease" data-id="${item.id}">-</button>
-                        <span>${item.quantity}</span>
-                        <button class="quantity-btn increase" data-id="${item.id}">+</button>
-                        <button class="quantity-btn remove" data-id="${item.id}"><i class="fas fa-trash"></i></button>
-                    </div>
-                `;
-                container.appendChild(cartItem);
-            });
-            document.getElementById('cart-total-price').textContent = `₹${total}`;
-            document.querySelectorAll('.increase').forEach(button => button.addEventListener('click', function() {
-                const productId = parseInt(this.getAttribute('data-id'));
-                const item = cart.find(item => item.id === productId);
-                if (item) item.quantity += 1;
-                localStorage.setItem('cart', JSON.stringify(cart));
-                renderCartItems();
-                updateCartBadge();
-            }));
-            document.querySelectorAll('.decrease').forEach(button => button.addEventListener('click', function() {
-                const productId = parseInt(this.getAttribute('data-id'));
-                const item = cart.find(item => item.id === productId);
-                if (item) {
-                    item.quantity -= 1;
-                    if (item.quantity <= 0) cart = cart.filter(i => i.id !== productId);
-                }
-                localStorage.setItem('cart', JSON.stringify(cart));
-                renderCartItems();
-                updateCartBadge();
-            }));
-            document.querySelectorAll('.remove').forEach(button => button.addEventListener('click', function() {
-                const productId = parseInt(this.getAttribute('data-id'));
-                cart = cart.filter(item => item.id !== productId);
-                localStorage.setItem('cart', JSON.stringify(cart));
-                renderCartItems();
-                updateCartBadge();
-            }));
-        }
-
-        // Place order
-        function placeOrder() {
-            if (!isAgeVerified || !isCustomerLoggedIn) {
-                alert('Please verify your age and log in to place an order.');
-                return;
-            }
-            if (cart.length === 0) {
-                alert('Your cart is empty.');
-                return;
-            }
-            const address = document.getElementById('delivery-address').value.trim();
-            if (!address) {
-                document.getElementById('address-error').style.display = 'block';
-                return;
-            }
-            const order = {
-                id: 'ORD-' + Date.now(),
-                date: new Date().toLocaleDateString(),
-                items: [...cart],
-                status: 'Pending',
-                total: cart.reduce((total, item) => total + (item.price * item.quantity), 0),
-                user: currentCustomer.name,
-                address: address
-            };
-            orders.push(order);
-            localStorage.setItem('orders', JSON.stringify(orders));
-            
-            // Clear cart after order
-            cart = [];
-            localStorage.setItem('cart', JSON.stringify(cart));
-            updateCartBadge();
-            
-            document.getElementById('delivery-address').value = '';
-            document.getElementById('address-error').style.display = 'none';
-            
-            const ordersContainer = document.getElementById('orders-container');
-            ordersContainer.innerHTML = `
-                <div class="order-confirmation">
-                    <div class="confirmation-icon"><i class="fas fa-check-circle"></i></div>
-                    <h2>Order Placed Successfully!</h2>
-                    <p>Your order ID: <strong>${order.id}</strong></p>
-                    <p>Total Amount: <strong>₹${order.total}</strong></p>
-                    <p>Address: <strong>${order.address}</strong></p>
-                    <p>Status: <span class="status status-pending">Pending</span></p>
-                </div>
-            `;
-            
-            closeCart();
-            
-            // Switch to orders tab
-            document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
-            document.querySelectorAll('.nav-item').forEach(item => item.classList.remove('active'));
-            document.querySelector('.tab[data-tab="orders"]').classList.add('active');
-            document.querySelector('.nav-item[data-tab="orders"]').classList.add('active');
-            document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
-            document.getElementById('orders-content').classList.add('active');
-            
-            // Update admin orders if panel is open
-            if (document.getElementById('admin-panel').classList.contains('active')) {
-                renderAdminOrders();
-            }
-        }
-
-        // Load orders
-        function loadOrders() {
-            const ordersContainer = document.getElementById('orders-container');
-            orders = JSON.parse(localStorage.getItem('orders')) || [];
-            
-            if (!isCustomerLoggedIn) {
-                ordersContainer.innerHTML = '<p style="text-align: center; padding: 20px;">Please log in to view your orders.</p>';
-                return;
-            }
-            
-            const userOrders = orders.filter(order => order.user === currentCustomer.name);
-            if (userOrders.length === 0) {
-                ordersContainer.innerHTML = '<p style="text-align: center; padding: 20px;">You have no orders yet.</p>';
-                return;
-            }
-            
-            let ordersHTML = '<table class="orders-table"><thead><tr><th>Order ID</th><th>Date</th><th>Items</th><th>Total</th><th>Address</th><th>Status</th></tr></thead><tbody>';
-            userOrders.forEach(order => {
-                ordersHTML += `
-                    <tr>
-                        <td>${order.id}</td>
-                        <td>${order.date}</td>
-                        <td>${order.items.length} items</td>
-                        <td>₹${order.total}</td>
-                        <td>${order.address}</td>
-                        <td><span class="status status-${order.status.toLowerCase()}">${order.status}</span></td>
-                    </tr>
-                `;
-            });
-            ordersHTML += '</tbody></table>';
-            ordersContainer.innerHTML = ordersHTML;
-        }
-
-        // Render admin orders
-        function renderAdminOrders() {
-            const ordersBody = document.getElementById('admin-orders-body');
-            orders = JSON.parse(localStorage.getItem('orders')) || [];
-            ordersBody.innerHTML = '';
-            
-            if (orders.length === 0) {
-                ordersBody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 20px;">No orders available.</td></tr>';
-                return;
-            }
-            
-            orders.forEach(order => {
-                const row = document.createElement('tr');
-                row.innerHTML = `
-                    <td>${order.id}</td>
-                    <td>${order.user}</td>
-                    <td>${order.address}</td>
-                    <td>${order.date}</td>
-                    <td>${order.items.map(item => item.name).join(', ')}</td>
-                    <td>₹${order.total}</td>
-                    <td><span class="status status-${order.status.toLowerCase()}">${order.status}</span></td>
-                    <td>
-                        <button class="btn btn-success status-btn" data-id="${order.id}" data-status="Complete">Complete</button>
-                        <button class="btn btn-danger status-btn" data-id="${order.id}" data-status="Pending">Pending</button>
-                    </td>
-                `;
-                ordersBody.appendChild(row);
-            });
-            
-            document.querySelectorAll('.status-btn').forEach(button => {
-                button.addEventListener('click', function() {
-                    const orderId = this.getAttribute('data-id');
-                    const newStatus = this.getAttribute('data-status');
-                    updateOrderStatus(orderId, newStatus);
-                });
-            });
-        }
-
-        // Update order status
-        function updateOrderStatus(orderId, newStatus) {
-            orders = orders.map(order => 
-                order.id === orderId ? { ...order, status: newStatus } : order
-            );
-            localStorage.setItem('orders', JSON.stringify(orders));
-            renderAdminOrders();
-            
-            // If user is viewing their orders, refresh that too
-            if (document.getElementById('orders-content').classList.contains('active')) {
-                loadOrders();
-            }
-            
-            showCartNotification(`Order ${orderId} status updated to ${newStatus}`);
-        }
-
-        // Render admin users
-        function renderAdminUsers() {
-            const usersBody = document.getElementById('admin-users-body');
-            customers = JSON.parse(localStorage.getItem('customers')) || [];
-            usersBody.innerHTML = '';
-            
-            if (customers.length === 0) {
-                usersBody.innerHTML = '<tr><td colspan="4" style="text-align: center; padding: 20px;">No users registered.</td></tr>';
-                return;
-            }
-            
-            customers.forEach(user => {
-                const row = document.createElement('tr');
-                row.innerHTML = `
-                    <td>#USR-${user.id}</td>
-                    <td>${user.name}</td>
-                    <td>${user.email}</td>
-                    <td>${user.mobile}</td>
-                `;
-                usersBody.appendChild(row);
-            });
-        }
-
-        // Admin functionality
-        function openAdminPanel() {
-            if (!isAgeVerified) {
-                alert('Please verify your age to continue.');
-                return;
-            }
-            document.getElementById('admin-panel').classList.add('active');
-        }
-        
-        function closeAdminPanel() { 
-            document.getElementById('admin-panel').classList.remove('active'); 
-        }
-        
-        function adminLogin() {
-            const email = document.getElementById('admin-email').value;
-            const password = document.getElementById('admin-password').value;
-            const errorElement = document.getElementById('login-error');
-            
-            if (email === adminCredentials.email && password === adminCredentials.password) {
-                errorElement.style.display = 'none';
-                document.getElementById('admin-login').style.display = 'none';
-                document.getElementById('admin-tabs').classList.add('active');
-                renderAdminOrders();
-                renderAdminUsers();
-            } else {
-                errorElement.style.display = 'block';
-                document.getElementById('admin-password').value = '';
-            }
-        }
-
-        // Notification
-        function showCartNotification(message) {
-            const notification = document.createElement('div');
-            notification.textContent = message;
-            notification.style.position = 'fixed';
-            notification.style.bottom = '100px';
-            notification.style.right = '20px';
-            notification.style.backgroundColor = 'var(--success)';
-            notification.style.color = 'white';
-            notification.style.padding = '10px 20px';
-            notification.style.borderRadius = '5px';
-            notification.style.zIndex = '1000';
-            notification.style.boxShadow = '0 4px 6px rgba(0,0,0,0.1)';
-            notification.style.animation = 'fadeIn 0.3s, fadeOut 0.3s 2s';
-            document.body.appendChild(notification);
-            setTimeout(() => notification.remove(), 2500);
-        }
-    </script>
+  <h1>Welcome to Electronic Store</h1>
+  <div id="products-container"></div>
+  <div id="cart-content">
+    <h2>Your Cart</h2>
+    <div id="cart-items"></div>
+    <div>Total: ₹<span id="cart-total">0</span></div>
+    <button id="place-order-btn">Place Order</button>
+  </div>
+  <div id="admin-content">
+    <h2>Admin Panel</h2>
+    <input type="text" id="admin-product-name" placeholder="Product Name" />
+    <input type="number" id="admin-product-price" placeholder="Price" />
+    <input type="text" id="admin-product-image" placeholder="Image URL" />
+    <select id="admin-product-stock">
+      <option value="in-stock">In Stock</option>
+      <option value="out-of-stock">Out of Stock</option>
+    </select>
+    <button id="admin-add-product">Add Product</button>
+    <div id="admin-orders-list"></div>
+    <div id="admin-users-list"></div>
+  </div>
 </body>
 </html>
